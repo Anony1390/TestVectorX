@@ -1,26 +1,26 @@
+// ex_mem_reg.v  (MODIFIED — replaces "RISC V 5 stage pipelined Core/ex_mem_reg.v")
+// Only change from the original: added a `stall` input that holds the
+// register's outputs instead of updating them, mirroring id_ex_reg.v.
 module ex_mem_reg(
     input clk,
     input rst,
+    input stall,                 // NEW
 
-    //to WB stage
     input regWrite_i,
     input memtoReg_i,
     input jal_i,
     input jalr_i,
 
-    //to MEM stage
     input memWrite_i,
     input memRead_i,
 
-    //data signals from EX stage
     input [31:0] ALUResult_i,
     input [31:0] rdata2_i,
     input [4:0] rd_i,
-    
+
     input [4:0] rs2_i,
     output reg [4:0] rs2_o,
 
-    //outputs to MEM stage
     output reg regWrite_o,
     output reg memtoReg_o,
     output reg memWrite_o,
@@ -48,7 +48,7 @@ always @(posedge clk) begin
         pcplus4_o <= 0;
         rs2_o <= 0;
     end
-    else begin
+    else if (!stall) begin
         regWrite_o <= regWrite_i;
         memtoReg_o <= memtoReg_i;
         memWrite_o <= memWrite_i;
@@ -61,5 +61,6 @@ always @(posedge clk) begin
         pcplus4_o <= pcplus4_i;
         rs2_o <= rs2_i;
     end
+    // else: hold (stall)
 end
 endmodule

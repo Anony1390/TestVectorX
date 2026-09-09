@@ -1,45 +1,44 @@
+// id_ex_reg.v  (MODIFIED — replaces "RISC V 5 stage pipelined Core/id_ex_reg.v")
+// Only change from the original: added a `stall` input. When high,
+// the register HOLDS its current output instead of updating, so the
+// scalar pipeline can be frozen while a multi-cycle vector LSU op is
+// in flight (same idea as the existing flush_id_ex bubble-insertion,
+// but a hold instead of a clear). Priority: rst > flush_id_ex > stall > normal.
 module id_ex_reg(
     input rst,
     input clk,
     input flush_id_ex,
+    input stall,                 // NEW
 
-    // to WB stage
     input regWrite_i,
     input memtoReg_i,
-
-    // to MEM stage
     input memWrite_i,
     input memRead_i,
-
-    // to EX stage
     input ALUSrc_i,
-    input [3:0] ALUCtl_i,   // Corrected to 4-bit as per output
-    input jal_i,            // Added
-    input jalr_i,           // Added
+    input [3:0] ALUCtl_i,
+    input jal_i,
+    input jalr_i,
 
-    // data signals from ID stage
     input [31:0] pc_i,
-    input [31:0] pcplus4_i, // Added
+    input [31:0] pcplus4_i,
     input [31:0] rdata1_i,
     input [31:0] rdata2_i,
     input [31:0] imm_i,
 
-    // identifiers
     input [4:0] rd_i,
     input [4:0] rs1_i,
     input [4:0] rs2_i,
-    
-    // outputs to EX stage
+
     output reg regWrite_o,
     output reg memtoReg_o,
     output reg memWrite_o,
     output reg memRead_o,
     output reg ALUSrc_o,
     output reg [3:0] ALUCtl_o,
-    output reg jal_o,       // Added
-    output reg jalr_o,      // Added
+    output reg jal_o,
+    output reg jalr_o,
     output reg [31:0] pc_o,
-    output reg [31:0] pcplus4_o, // Added
+    output reg [31:0] pcplus4_o,
     output reg [31:0] rdata1_o,
     output reg [31:0] rdata2_o,
     output reg [31:0] imm_o,
@@ -50,7 +49,6 @@ module id_ex_reg(
 
 always @(posedge clk) begin
     if (~rst) begin
-        // Reset all signals to 0
         regWrite_o      <= 1'b0;
         memtoReg_o      <= 1'b0;
         memWrite_o      <= 1'b0;
@@ -69,19 +67,16 @@ always @(posedge clk) begin
         rs2_o           <= 5'b00000;
     end
     else if (flush_id_ex) begin
-        // Flush: Clear control signals to prevent state changes (NOP)
         regWrite_o      <= 1'b0;
         memWrite_o      <= 1'b0;
         memRead_o       <= 1'b0;
         jal_o           <= 1'b0;
         jalr_o          <= 1'b0;
-        // Data signals don't strictly need to be cleared, but it's cleaner
         ALUSrc_o        <= 1'b0;
         ALUCtl_o        <= 4'b0000;
         rd_o            <= 5'b00000;
     end
-    else begin
-        // Normal pipeline operation
+    else if (!stall) begin
         regWrite_o      <= regWrite_i;
         memtoReg_o      <= memtoReg_i;
         memWrite_o      <= memWrite_i;
@@ -99,6 +94,7 @@ always @(posedge clk) begin
         rs1_o           <= rs1_i;
         rs2_o           <= rs2_i;
     end
+    // else: hold (stall)
 end
 
 endmodule

@@ -69,6 +69,18 @@ module tb_vector_pipelined_core;
         start = 0;
         repeat (2) @(posedge clk);
 
+        // Let the synchronous reset processes (vector_register_file,
+        // vector_config, etc.) finish their NBA-scheduled updates for
+        // THIS edge (rst was still asserted when it fired) before we
+        // force any values in below. Without this, our blocking
+        // writes below execute in the same "active" region as the
+        // edge, but the reset's own non-blocking `vrf[i] <= '0`
+        // updates land in the "NBA" region right after — silently
+        // clobbering our seeded values back to zero in the same
+        // timestep. A tiny delay moves us past that NBA region.
+        #1;
+        start = 1;
+
         // ---- seed vector source registers directly (bring-up shortcut) ----
         // v1[lane i] = i+1, v2[lane i] = 10  (see vector_register_file hierarchy)
         for (int i = 0; i < LANES; i++) begin
@@ -78,7 +90,7 @@ module tb_vector_pipelined_core;
         // v3 = base address (element 0) for the LSU tests, in lane 0's
         // low word (vector_lsu reads base_addr from vs1[31:0]).
         dut.m_v_regfile.vrf[3] = '0;
-        dut.m_v_regfile.vrf[3][31:0] = 32'h40;  // word-aligned base
+        dut.m_v_regfile.vrf[3][31:0] = 32'h40;
 
         // ---- program ----
         // 0: scalar NOP-ish (addi x1,x0,5)          -- exercise scalar path
@@ -100,9 +112,6 @@ module tb_vector_pipelined_core;
         dut.m_InstMem.mem[7] = vinstr(VLOAD, 5'd7, 5'd3, 5'd0, UNIT_STRIDE);
         dut.m_InstMem.mem[8] = addi(5'd4, 5'd0, 12'd11);
         for (int i = 9; i < 32; i++) dut.m_InstMem.mem[i] = 32'd0;
-
-        // ---- release reset, run ----
-        start = 1;
 
         repeat (400) @(posedge clk);
 

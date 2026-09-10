@@ -578,7 +578,11 @@ wire [VLEN-1:0] v_load_data;
 wire v_lsu_done, v_lsu_busy;
 
 vector_opcode_t v_mem_lsu_op;
-assign v_mem_lsu_op = v_mem_read_pipe ? VLOAD : (v_mem_write_pipe ? VSTORE : VADD);
+always_comb begin
+    if (v_mem_read_pipe)       v_mem_lsu_op = VLOAD;
+    else if (v_mem_write_pipe) v_mem_lsu_op = VSTORE;
+    else                       v_mem_lsu_op = VADD;
+end
 
 vector_lsu m_v_lsu (
     .clk          (clk),

@@ -38,6 +38,13 @@ import vector_pkg::*;
     output logic busy     // NEW: pipeline-stall qualifier (see header)
 );
 
+// FSM state declared up front, BEFORE it's referenced by the
+// `assign mem_req = (state == EXEC)` below. Icarus does not support
+// forward references to a typedef'd enum variable declared later in
+// the same module ("declaration after use").
+typedef enum logic [1:0] {IDLE, EXEC, DONE} state_t;
+state_t state, nstate;
+
 logic [15:0] elem_idx;
 logic [31:0] addr;
 logic load;
@@ -75,19 +82,28 @@ end
 logic start;
 assign start = load || store;
 
-typedef enum logic [1:0] {IDLE, EXEC, DONE} state_t;
-state_t state, nstate;
-
 always_ff @(posedge clk or posedge rst) begin : FSM
     if (rst) state <= IDLE;
     else     state <= nstate;
 end
 
+// Written as explicit if/else rather than a ternary between enum
+// literals: Icarus's SV elaborator treats a ternary of two enum
+// values as a self-determined (non-enum) expression and refuses to
+// assign it back to an enum-typed variable without an explicit cast
+// ("This assignment requires an explicit cast."). if/else sidesteps
+// the issue and reads the same.
 always_comb begin : Next_State
     case (state)
-        IDLE: nstate = start ? EXEC : IDLE;
-        EXEC: nstate = (mem_valid && elem_idx == vl-1) ? DONE : EXEC;
-        DONE: nstate = IDLE;
+        IDLE: begin
+            if (start) nstate = EXEC;
+            else       nstate = IDLE;
+        end
+        EXEC: begin
+            if (mem_valid && elem_idx == vl-1) nstate = DONE;
+            else                                nstate = EXEC;
+        end
+        DONE:    nstate = IDLE;
         default: nstate = IDLE;
     endcase
 end

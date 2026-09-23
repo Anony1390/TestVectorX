@@ -1,27 +1,37 @@
 // vector_lsu.sv
-// Based on "Vector Simulation/vector_lsu.sv", with TWO additions on
-// top of the original FSM:
+// Based on "Vector Simulation/vector_lsu.sv", with two changes from
+// the original, both needed for correct pipeline integration:
 //
-// 1) `busy` (see below) is asserted the same cycle a load/store is
-//    issued (state==IDLE && start), not one cycle later, so the
-//    pipeline-stall signal derived from it doesn't come up a cycle
-//    too late.
+// 1. `busy` output: asserted for the FULL duration an instruction
+//    occupies the MEM stage, INCLUDING the DONE state. This matters
+//    because `done` itself is a *registered* signal -- it only
+//    becomes 1 the cycle AFTER the FSM reaches DONE, not on the same
+//    cycle. If `busy` (and therefore the pipeline stall it drives)
+//    dropped as soon as state==DONE, the surrounding pipeline would
+//    unstall and advance to the next instruction one cycle before
+//    v_mem_wb_reg ever actually sees done==1, silently dropping the
+//    just-finished instruction's commit.
 //
-// 2) `done` is COMBINATIONAL (`state == DONE`), not a registered
-//    pulse. This matters for correctness, not just style:
-//    `busy` drops as soon as the FSM leaves EXEC (state==DONE),
-//    which is also exactly the cycle the final element's data
-//    finishes landing in `load_data`. That's the ONE cycle where
-//    both (a) load_data is fully valid and (b) the pipeline stall
-//    hasn't yet let v_ex_mem_reg advance past this instruction.
-//    A REGISTERED `done` (as in the original file) fires one cycle
-//    later than that -- by which point v_ex_mem_reg has already
-//    moved on to the next instruction, so v_mem_wb_reg commits
-//    using the WRONG (or no) regwrite/vrd, and the destination
-//    vector register is never correctly written. Making `done`
-//    combinational on `state==DONE` collapses that extra cycle of
-//    delay and lines the commit up with the one cycle where
-//    everything is actually correct.
+// 2. `issue`: an explicit one-shot pulse INPUT (from the wrapper),
+//    replacing the original design's internal `start = load||store`.
+//    Because the surrounding pipeline intentionally holds this
+//    module's op/mode/base_addr/etc. inputs steady for the ENTIRE
+//    time an LSU instruction is in flight (including the extra
+//    DONE-state hold cycle from point 1), a level-based `start`
+//    derived straight from `op` would spuriously re-trigger the FSM
+//    the moment `state` returns to IDLE but the (stale, still-held)
+//    op fields are still present -- i.e. it would silently re-run
+//    the instruction that just finished. `issue` instead pulses
+//    exactly once, only on the cycle a NEW instruction has actually
+//    just landed in this stage (see the `v_lsu_issue` generation in
+//    VectorPipelineStandalone.sv / VectorPipelinedCore.sv).
+//
+// NOTE: the FSM `typedef`/state declarations are placed near the top
+// of the module, before anything references `state`/`nstate`. Icarus
+// Verilog requires a typedef'd enum variable to be declared before
+// its first use within the same module (unlike some other
+// simulators, which tolerate out-of-order module items) -- keep this
+// ordering if you edit this file.
 module vector_lsu
 import vector_pkg::*;
 (
@@ -30,6 +40,7 @@ import vector_pkg::*;
 
     input vector_mem_mode_t mode,
     input vector_opcode_t   op,      // VLOAD / VSTORE (others => idle)
+    input logic             issue,   // one-shot: a NEW op just arrived
 
     input logic [15:0] vl,
     input logic [31:0] base_addr,
@@ -51,10 +62,7 @@ import vector_pkg::*;
     output logic busy     // pipeline-stall qualifier (see header)
 );
 
-// FSM state declared up front, before it's referenced by
-// `assign mem_req = (state == EXEC)` below -- Icarus does not support
-// forward references to a typedef'd enum variable declared later in
-// the same module.
+// ---- FSM state declared first (must precede any use below) ----
 typedef enum logic [1:0] {IDLE, EXEC, DONE} state_t;
 state_t state, nstate;
 
@@ -92,29 +100,16 @@ always_ff @(posedge clk) begin : Loads
     end
 end
 
-logic start;
-assign start = load || store;
-
 always_ff @(posedge clk or posedge rst) begin : FSM
     if (rst) state <= IDLE;
     else     state <= nstate;
 end
 
-// Written as explicit if/else rather than a ternary between enum
-// literals -- Icarus's SV elaborator treats a ternary of two enum
-// values as a self-determined (non-enum) expression and refuses to
-// assign it back to an enum-typed variable without an explicit cast.
 always_comb begin : Next_State
     case (state)
-        IDLE: begin
-            if (start) nstate = EXEC;
-            else       nstate = IDLE;
-        end
-        EXEC: begin
-            if (mem_valid && elem_idx == vl-1) nstate = DONE;
-            else                                nstate = EXEC;
-        end
-        DONE:    nstate = IDLE;
+        IDLE: if (issue) nstate = EXEC; else nstate = IDLE;
+        EXEC: if (mem_valid && elem_idx == vl-1) nstate = DONE; else nstate = EXEC;
+        DONE: nstate = IDLE;
         default: nstate = IDLE;
     endcase
 end
@@ -122,26 +117,24 @@ end
 always_ff @(posedge clk or posedge rst) begin : LSU_OP
     if (rst) begin
         elem_idx <= 0;
+        done     <= 0;
     end
-    else if (state == IDLE && start) begin
+    else if (state == IDLE && issue) begin
         elem_idx <= 0;
+        done     <= 0;
     end
     else if (state == EXEC && mem_valid) begin
         elem_idx <= elem_idx + 1;
     end
+    else if (state == DONE) begin
+        done <= 1;
+    end
 end
 
-// `done` is purely combinational on `state`, deliberately NOT a
-// registered pulse -- see header comment for why this matters.
-// It reads high for exactly the one cycle state==DONE, then drops
-// again once the FSM returns to IDLE.
-assign done = (state == DONE);
-
-// Busy the same cycle a new op is issued, through EXEC. Note this
-// does NOT include DONE: `busy` dropping during DONE is what lets
-// v_ex_mem_reg advance to the next instruction one cycle later,
-// which in turn changes `op` away from VLOAD/VSTORE before the FSM
-// ever revisits IDLE -- avoiding a self-retriggering stall loop.
-assign busy = (state == EXEC) || (state == IDLE && start);
+// Busy for the entire time this stage is occupied by an in-flight
+// instruction: the issue cycle itself, the whole EXEC burst, AND the
+// DONE cycle (so the surrounding pipe doesn't unstall/advance before
+// `done` is actually visible -- see header comment).
+assign busy = (state != IDLE) || issue;
 
 endmodule

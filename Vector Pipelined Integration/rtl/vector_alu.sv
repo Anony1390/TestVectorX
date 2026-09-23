@@ -16,20 +16,18 @@ module VALU (
         for (i = 0; i < LANES; i = i + 1) begin : alu_lanes
             wire [SEW-1:0] vs1_lane = vs1[(i+1)*SEW-1 : i*SEW];
             wire [SEW-1:0] vs2_lane = vs2[(i+1)*SEW-1 : i*SEW];
-
-            // Pulled out of the always_comb below as a plain continuous
-            // assign: Icarus's support for constant part-selects inside
-            // always_* processes is incomplete ("sorry: constant
-            // selects in always_* processes are not fully supported")
-            // and it falls back to sensitizing the whole vs2_lane bus.
-            // Slicing here instead avoids the warning; behavior is
-            // identical either way.
-            wire [$clog2(SEW)-1:0] shamt = vs2_lane[$clog2(SEW)-1:0];
-
             logic [SEW-1:0] vd_lane;
 
             logic lane_active;
             assign lane_active = (i < vl);
+
+            // Precomputed once per lane, outside the case statement:
+            // avoids Icarus Verilog's "constant selects in always_*
+            // processes are not fully supported" advisory that a
+            // repeated part-select (vs2_lane[$clog2(SEW)-1:0]) used
+            // directly inside a case would otherwise print three times.
+            logic [$clog2(SEW)-1:0] shamt;
+            assign shamt = vs2_lane[$clog2(SEW)-1:0];
 
             always_comb begin
                 if (lane_active) begin

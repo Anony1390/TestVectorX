@@ -577,6 +577,11 @@ wire [ELEN-1:0] v_mem_rdata;
 wire [VLEN-1:0] v_load_data;
 wire v_lsu_done, v_lsu_busy;
 
+// NOTE: written as an always_comb with one enum literal per branch
+// rather than a nested ternary continuous assignment -- Icarus
+// Verilog requires an explicit cast when a ternary mixes enum
+// literals inside a continuous `assign`; a plain if/else avoids that
+// entirely and is at least as readable.
 vector_opcode_t v_mem_lsu_op;
 always_comb begin
     if (v_mem_read_pipe)       v_mem_lsu_op = VLOAD;
@@ -584,11 +589,24 @@ always_comb begin
     else                       v_mem_lsu_op = VADD;
 end
 
+// One-shot issue pulse for the LSU FSM (see vector_lsu.sv header for
+// why this can't just be derived from level-held op bits). Fires
+// exactly once, the cycle a new LSU instruction's fields have just
+// landed in v_ex_mem_reg (i.e. the pipe was NOT stalled the cycle
+// before).
+logic v_prev_stall;
+always_ff @(posedge clk) begin
+    if (~start) v_prev_stall <= 1'b0;
+    else        v_prev_stall <= v_pipe_stall;
+end
+wire v_lsu_issue = v_mem_lsu_en_pipe && !v_prev_stall;
+
 vector_lsu m_v_lsu (
     .clk          (clk),
     .rst          (~start),
     .mode         (v_mem_mode_pipe),
     .op           (v_mem_lsu_op),
+    .issue        (v_lsu_issue),
     .vl           (v_mem_vl_pipe[15:0]),
     .base_addr    (v_mem_base_addr_pipe),
     .stride       (v_mem_stride_pipe),

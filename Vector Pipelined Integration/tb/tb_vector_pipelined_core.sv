@@ -75,7 +75,7 @@ module tb_vector_pipelined_core;
         // force any values in below. Without this, our blocking
         // writes below execute in the same "active" region as the
         // edge, but the reset's own non-blocking `vrf[i] <= '0`
-        // updates land in the "NBA" region right after — silently
+        // updates land in the "NBA" region right after -- silently
         // clobbering our seeded values back to zero in the same
         // timestep. A tiny delay moves us past that NBA region.
         #1;
@@ -90,7 +90,7 @@ module tb_vector_pipelined_core;
         // v3 = base address (element 0) for the LSU tests, in lane 0's
         // low word (vector_lsu reads base_addr from vs1[31:0]).
         dut.m_v_regfile.vrf[3] = '0;
-        dut.m_v_regfile.vrf[3][31:0] = 32'h40;
+        dut.m_v_regfile.vrf[3][31:0] = 32'h40;  // word-aligned base
 
         // ---- program ----
         // 0: scalar NOP-ish (addi x1,x0,5)          -- exercise scalar path

@@ -1,5 +1,5 @@
 $date
-	Thu Sep 24 02:41:37 2026
+	Thu Sep 24 16:58:06 2026
 $end
 $version
 	Icarus Verilog
@@ -200,7 +200,7 @@ $var wire 1 J mem_read $end
 $var wire 32 Z" mem_rdata [31:0] $end
 $var wire 32 [" mem_addr [31:0] $end
 $var parameter 32 \" WORDS $end
-$scope begin $ivl_for_loop1 $end
+$scope begin $ivl_for_loop0 $end
 $var integer 32 ]" i [31:0] $end
 $upscope $end
 $upscope $end
@@ -390,7 +390,7 @@ $var reg 256 \# rd2 [255:0] $end
 $scope begin Read $end
 $upscope $end
 $scope begin Write $end
-$scope begin $ivl_for_loop0 $end
+$scope begin $ivl_for_loop1 $end
 $var integer 32 ]# i [31:0] $end
 $upscope $end
 $upscope $end

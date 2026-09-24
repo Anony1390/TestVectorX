@@ -124,7 +124,7 @@ module tb_vector_pipelined_core;
         for (int r = 5; r <= 7; r++) begin
             $write("v%0d:", r);
             for (int i = 0; i < 4; i++)
-                $write(" %0d", dut.m_v_regfile.vrf[r][i*SEW +: SEW]);
+                $write(" %0d", $signed(dut.m_v_regfile.vrf[r][i*SEW +: SEW]));
             $display("");
         end
 
